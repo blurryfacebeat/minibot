@@ -1,75 +1,109 @@
+
 #include <Arduino.h>
-#include <U8g2lib.h>
+#include <cstring>
 
-// Пины подключения дисплея
-constexpr uint8_t OLED_SDA = 21;
-constexpr uint8_t OLED_SCL = 22;
+#include "FaceController.h"
 
-// Создаём объект дисплея
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C display(
-    U8G2_R0,
-    U8X8_PIN_NONE,
-    OLED_SCL,
-    OLED_SDA
-);
+FaceController face;
 
-// Время последнего кадра
-uint32_t lastFrame = 0;
+// Буфер для ввода команд
+char commandBuffer[32];
+uint8_t commandLength = 0;
 
-// Рисуем глаза
-void drawEyes(int offset, bool blink) {
-    display.clearBuffer();
-
-    if (blink) {
-        // Закрытые глаза
-        display.drawRBox(24, 32, 30, 4, 2);
-        display.drawRBox(74, 32, 30, 4, 2);
-    } else {
-        // Открытые глаза
-        display.drawRBox(
-            24 + offset, 15, 30, 35, 10
-        );
-
-        display.drawRBox(
-            74 + offset, 15, 30, 35, 10
-        );
+void handleCommand(const char* command) {
+    if (strcmp(command, "boot") == 0 ||
+        strcmp(command, "wake") == 0) {
+        face.restartBootSequence();
     }
+    else if (strcmp(command, "idle") == 0) {
+        face.setMode(FaceController::Mode::Idle);
+    }
+    else if (strcmp(command, "listen") == 0) {
+        face.setMode(FaceController::Mode::Listening);
+    }
+    else if (strcmp(command, "think") == 0) {
+        face.setMode(FaceController::Mode::Thinking);
+    }
+    else if (strcmp(command, "speak") == 0) {
+        face.setMode(FaceController::Mode::Speaking);
+    }
+    else if (strcmp(command, "sleep") == 0) {
+        face.setMode(FaceController::Mode::Sleeping);
+    }
+    else if (strcmp(command, "blink") == 0) {
+        face.blink();
+    }
+    else if (strcmp(command, "left") == 0) {
+        face.lookAt(-6, 0);
+    }
+    else if (strcmp(command, "right") == 0) {
+        face.lookAt(6, 0);
+    }
+    else if (strcmp(command, "up") == 0) {
+        face.lookAt(0, -4);
+    }
+    else if (strcmp(command, "down") == 0) {
+        face.lookAt(0, 4);
+    }
+    else if (strcmp(command, "center") == 0) {
+        face.lookAt(0, 0);
+    }
+    else if (strcmp(command, "pupils on") == 0) {
+        face.setPupilsEnabled(true);
+    }
+    else if (strcmp(command, "pupils off") == 0) {
+        face.setPupilsEnabled(false);
+    }
+    else if (strcmp(command, "help") == 0) {
+        Serial.println("Available commands:");
+        Serial.println("boot, wake, idle, listen");
+        Serial.println("think, speak, sleep, blink");
+        Serial.println("left, right, up, down, center");
+        Serial.println("pupils on, pupils off");
+    }
+    else {
+        Serial.println("Unknown command. Type help");
+    }
+}
 
-    display.sendBuffer();
+void readSerialCommands() {
+    while (Serial.available()) {
+        char c = (char)Serial.read();
+
+        if (c == '\n' || c == '\r') {
+            if (commandLength == 0) {
+                continue;
+            }
+
+            commandBuffer[commandLength] = '\0';
+
+            handleCommand(commandBuffer);
+
+            commandLength = 0;
+        }
+        else if (commandLength < sizeof(commandBuffer) - 1) {
+            commandBuffer[commandLength++] = c;
+        }
+        else {
+            commandLength = 0;
+            Serial.println("Command too long");
+        }
+    }
 }
 
 void setup() {
     Serial.begin(115200);
 
-    // Адрес 0x3C в формате U8g2
-    display.setI2CAddress(0x3C * 2);
+    Serial.println("MiniBot v0.4");
 
-    // Запускаем дисплей
-    display.begin();
+    face.begin();
 
-    Serial.println("MiniBot eyes started!");
+    Serial.println("Type help for commands");
 }
 
 void loop() {
-    uint32_t now = millis();
+    readSerialCommands();
+    face.update();
 
-    // Около 30 кадров в секунду
-    if (now - lastFrame < 33) {
-        return;
-    }
-
-    lastFrame = now;
-
-    // Моргание раз в 3,5 секунды
-    bool blink = (now % 3500) < 150;
-
-    // Направление взгляда
-    int direction = (now / 2000) % 3;
-
-    int offset = 0;
-
-    if (direction == 1) offset = -7;
-    if (direction == 2) offset = 7;
-
-    drawEyes(offset, blink);
+    delay(1);
 }
